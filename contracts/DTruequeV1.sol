@@ -4,12 +4,22 @@ contract ERC20 {
     function transferFrom(address _from, address _to, uint256 _value) public returns (bool success);
 }
 contract Ownable {
-    address owner;
+    constructor() public{
+        owner = msg.sender;
+    }
+    
+    event OwnershipTransferred(address previousOwner, address newOwner);
+    address public owner;
     modifier onlyOwner(){
         require(owner == msg.sender);
         _;
     }
+    function getOwner() public view returns(address){
+        return owner;
+    }
     function transferOwner(address newOwner) onlyOwner public{
+        require(newOwner != address(0));
+        emit OwnershipTransferred(owner, newOwner);
         owner = newOwner;
     }
 }
@@ -53,7 +63,9 @@ contract ordersManager is Ownable, Deprecatable{
     }
     
     function createOrderAndSendTo(address tokenSale, uint256 amountToSale, uint256 price, address tokenBuy, bool paused, address buyDestination) notDeprecated public returns(uint256){
+        require(buyDestination != address(0));
         require(ERC20(tokenSale).transferFrom(msg.sender, address(this), amountToSale));
+        mul(amountToSale, price); // check posible overflow in the future.
         uint256 id = ordersTokenSaleTokenBuyIds[tokenSale][tokenBuy].length;
         var newOrder = Order(id, block.timestamp, ERC20(tokenSale), amountToSale, price, ERC20(tokenBuy), paused, msg.sender, buyDestination);
         ordersTokenSaleTokenBuyIds[tokenSale][tokenBuy].push(newOrder);
@@ -72,11 +84,20 @@ contract ordersManager is Ownable, Deprecatable{
         emit OrderPausedChange(tokenSale, tokenBuy, id, paused);
     }
     
+    function mul(uint256 a, uint256 b) internal pure returns (uint256 c) {
+        if (a == 0) {
+          return 0;
+        }
+        c = a * b;
+        assert(c / a == b);
+        return c;
+    }
     // amount: amount of tokens to buy in wei
     function buyAndSendTo(address tokenSale, address tokenBuy, uint256 id, uint256 amount, address destination) public returns(bool){
                 // exist id?
         Order storage order = ordersTokenSaleTokenBuyIds[tokenSale][tokenBuy][id];
         require(!order.paused);
+        require(destination != address(0));
         // validate disponibility on Order to sale amount
         require(order.amountToSale >= amount);
         
@@ -84,7 +105,7 @@ contract ordersManager is Ownable, Deprecatable{
         order.amountToSale -= amount;
         // validate amount on buyer. No sense we get this on transaction.
         // validate allowance on buyer. No sense we get this on transaction.
-        uint256 amountForOwner = (amount * order.price) /  10 ** 18; //Check this could fail for tokens with more or less decimal than 18
+        uint256 amountForOwner = (mul(amount, order.price)) /  10 ** 18; //Check this could fail for tokens with more or less decimal than 18
         // transfer from buyer to buyDestination
         require(order.tokenBuy.transferFrom(msg.sender, order.buyDestination, amountForOwner));
         // transfer from smartcontracto to destination
